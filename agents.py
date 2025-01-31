@@ -6,71 +6,19 @@
 from crewai import Agent
 from Tools.SearchTools import SearchTools
 from Tools.RiskEscilationTools import RiskEscalationTools
-
-
-
-
-
-
-
-
-# Memory Manager Class
-class MemoryManager:
-    def __init__(self, memory_client):
-        self.memory_client = memory_client
-
-    def store_to_memory(self, agent, query, context=None):
-        memory_data = {
-            "agent_id": agent.id,
-            "user_id": "ZehaanWalji",  # Replace with dynamic user ID if available
-            "app_id": "Medical MAS",  # Assign a unique app ID
-            "query": query,
-            "context": context or {},
-        }
-        response = self.memory_client.store(memory_data)
-        if response.status_code != 200:
-            raise Exception(f"Failed to store memory: {response.json()}")
-        return response
-    
-    
-    
-    def retrieve_past_queries(self, agent, user_id="user-123"):
-        memories = self.memory_client.search(
-            query="*",  # Fetch all past queries
-            agent_id=agent.id,
-            user_id=user_id,
-            app_id="medical-mas",
-        )
-        print(f"Memories response: {memories}")
-
-        # If memories is a list, process it as such
-        if isinstance(memories, list):
-            return [memory.get("query", "") for memory in memories if isinstance(memory, dict)]  # Safely handle each memory as a dict
-
-        # If memories is a dictionary, extract "data" key
-        elif isinstance(memories, dict):
-            data = memories.get("data", [])
-            if isinstance(data, list):  # Ensure "data" is a list
-                return [memory.get("query", "") for memory in data if isinstance(memory, dict)]
-            else:
-                raise ValueError("Expected 'data' key to contain a list in the dictionary")
-
-        # If none of the above, raise an error
-        else:
-            raise ValueError("Unexpected response format from memory client")
-
-
-
-
+from crewai_tools import FileReadTool
 
 
 
 # Creating Agent Class
 class MedicalAgents:
-    def __init__(self, memory_client):
+    def __init__(self,):
         self.search_tools = SearchTools()
         self.risk_tools = RiskEscalationTools()
-        self.memory_manager = MemoryManager(memory_client)
+        
+        #Reading files:
+        self.file_read_tool = FileReadTool()
+        self.file_read_tool = FileReadTool(file_path='memory.txt')
 
     # Master Agent/Boss
     def masterAgent(self):
@@ -91,9 +39,10 @@ class MedicalAgents:
                 Although this is life or death, that does not mean you should not be thorough in your explanation of the steps and how to do what you are suggesting.
                 Try and make your answer trustworthy to the user. 
                 The level of diction and the way you present the information should be dependent on the user's age and level of medical knowledge.
+                Use the other agents estimates to determine how conplicated the explinations should be. 
                 """
             ),
-            tools=[self.search_tools.search_internet],
+            tools=[self.search_tools.search_internet, self.file_read_tool],
             verbose=True,
             max_retry_limit=1,
             allow_delegation=False,
@@ -116,13 +65,16 @@ class MedicalAgents:
             goal=(
                 f"""
                 Accurately classify the type and severity of the medical emergency. 
-    A lways consider the current query in the context of past queries to identify patterns or progression of symptoms.                """
+                Always consider the current query in the context of past queries to identify patterns or progression of symptoms.    
+                The previous query is accesible via the file_read_tool, so ALWAYS check that first.             
+                 """
             ),
-            tools=[self.search_tools.search_internet],
+            
+            tools=[self.search_tools.search_internet, self.file_read_tool],
             verbose=True,
             max_retry_limit=1,
             allow_delegation=False,
-            memory=True,  # type: ignore
+            # memory=True,  # type: ignore
         )
 
     # Protocol Advisor Agent
@@ -140,11 +92,11 @@ class MedicalAgents:
                 Generate actionable, step-by-step first aid instructions aligned with recognized medical standards. 
                 """
             ),
-            tools=[self.search_tools.search_internet],
+            tools=[self.search_tools.search_internet, self.file_read_tool],
             verbose=True,
             max_retry_limit=1,
             allow_delegation=False,
-            memory=True,  # type: ignore
+            # memory=True,  #type: ignore
         )
 
     # Risk Assessment Agent
@@ -166,7 +118,7 @@ class MedicalAgents:
             verbose=True,
             max_retry_limit=1,
             allow_delegation=False,
-            memory=True,  # type: ignore
+            # memory=True,  # type: ignore
         )
 
     # Verification Agent
@@ -183,13 +135,15 @@ class MedicalAgents:
             goal=(
                 f"""
                 Validate 100% of the system's advice against trusted medical guidelines. 
+                Expected Output:
+                - A message stating that the advice has been verified, and what sources were used along with links. 
                 """
             ),
             tools=[self.search_tools.search_internet],
             verbose=True,
             max_retry_limit=1,
             allow_delegation=False,
-            memory=True,  # type: ignore
+            # memory=True,  # type: ignore
         )
 
     # User Proficiency Agent
@@ -211,5 +165,5 @@ class MedicalAgents:
             verbose=True,
             max_retry_limit=1,
             allow_delegation=False,
-            memory=True,  # type: ignore
+            # memory=True,  # type: ignore
         )

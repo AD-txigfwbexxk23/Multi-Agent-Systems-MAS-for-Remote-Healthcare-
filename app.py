@@ -6,6 +6,8 @@ from dotenv import load_dotenv
 import os
 from pprint import pprint
 from gtts import gTTS
+import atexit #Importing to recognize when the application has been closed
+
 
 
 
@@ -16,8 +18,6 @@ class MedicalMASUI:
     load_dotenv()
     api_key = os.getenv("OPENAI_API_KEY") 
     openai.api_key = api_key
-
-
 
 
 
@@ -35,8 +35,8 @@ class MedicalMASUI:
 
         if "result" not in st.session_state:
             st.session_state.result = None
-
-
+        if "query_logged" not in st.session_state:
+            st.session_state.query_logged = False
 
 
 
@@ -200,12 +200,14 @@ class MedicalMASUI:
         #If the speak button is pressed
         if st.button("Speak"):
             #Creating a text to speech audo file
-            speech= str(tasks_output[3])#Getting the master agent output as a string
+            speech= str(tasks_output[5])#Getting the master agent output as a string
             tts = gTTS(speech)#Uploading the string so it can be read as an mp3 file
             tts.save("output.mp3")
             #Playing the audio
             st.audio("output.mp3")
                     
+                
+        
 
 
     def run(self):
@@ -222,9 +224,21 @@ class MedicalMASUI:
             "Enter a medical query:", value=st.session_state.query, key="query"
         )
 
+
+
+        # Reset the query_logged flag when no query is entered
+        if st.session_state.query.strip() == "":
+            st.session_state.query_logged = False
+
+        
         # Generate button
         if st.sidebar.button("Generate Solution"):
             st.session_state.generating = True
+            if not st.session_state.query_logged:
+                with open("memory.txt", "a") as fileHandler:
+                    fileHandler.write("Query: " + str(st.session_state.query) + "\n")
+                st.session_state.query_logged = True  # Set the flag after logging
+
 
         # Main layout
         if st.session_state.query.strip() == "":
@@ -237,22 +251,32 @@ class MedicalMASUI:
                 A Multi-Agent System (MAS) is a system where multiple agents (software entities) collaborate, communicate, and solve tasks together. Each agent has its own role and knowledge base, contributing to a shared goal. In this medical MAS, different agents analyze symptoms, provide medical advice, and verify data, helping to create a comprehensive solution for your medical query.
                 """
             )
+            
+    
+
         elif st.session_state.generating:
             result = self.generate_medical_aid(st.session_state.query)
             #Setting the st.session_state in streamlit equal to the raw output from crewAI
             st.session_state.result = result
             st.session_state.generating = False
+            
+            
         
+        #Writing the query to a file
         self.display_results(st.session_state.result)
 
 
 
 
+#Clearing memory when the application is closed
+def cleaMemory():
+    open('memory.txt', 'w').close()
+atexit.register(cleaMemory)
 
 
 
 
-
+#Running the program>
 if __name__ == "__main__":
     ui = MedicalMASUI()
     ui.run()
