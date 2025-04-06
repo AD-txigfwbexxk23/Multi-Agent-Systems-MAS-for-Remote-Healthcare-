@@ -6,12 +6,8 @@ from dotenv import load_dotenv
 import os
 from pprint import pprint
 from gtts import gTTS
-import atexit #Importing to recognize when the application has been closed
-
-
-
-
-
+import atexit
+import speech_recognition as sr
 
 class MedicalMASUI:
 
@@ -19,143 +15,65 @@ class MedicalMASUI:
     api_key = os.getenv("OPENAI_API_KEY") 
     openai.api_key = api_key
 
-
-
-    #General parameter initialization for the class
-    #Ensures that nothing is empty and that the code runs as it should
     def __init__(self):
-        """
-        Initialize session state variables.
-        """
         if "query" not in st.session_state:
             st.session_state.query = ""
-
         if "generating" not in st.session_state:
             st.session_state.generating = False
-
         if "result" not in st.session_state:
             st.session_state.result = None
         if "query_logged" not in st.session_state:
             st.session_state.query_logged = False
 
-
-
-
-
-
-
-
-
-    #Taking in the query and striping it of any whitespace
-    #Calling the medical crew function with the query
     def generate_medical_aid(self, query):
-        """
-        Initialize MedicalCrew with the required query and run it.
-        """
         if not query.strip():
             st.warning("⚠️ Please enter a valid query before generating a solution.")
             return None
-
         crew = MedicalCrew(query=query)
-
         try:
             result = crew.run()
             return result
-        
         except Exception as e:
             st.error(f"An error occurred: {e}")
             return None
 
-
-
-
-
-
-
-
-
-
-
-    #Displaying the results
     def display_results(self, result):
-
-
-        """
-        Display agent outputs in a vertical layout with collapsible sections.
-        """
-        #If there is no result do nothing
         if not result:
-            return #Do nothing
+            return
 
-        #Getting all the task outputs
         tasks_output = getattr(result, 'tasks_output', [])
         if not isinstance(tasks_output, list):
             st.warning("⚠️ tasks_output is not valid.")
             tasks_output = []
 
-
-
-        # Correct Agent Mapping
         agent_roles = [
             ("Symptoms Analysis Agent", tasks_output[0] if len(tasks_output) > 0 else "No output provided by this agent."),
             ("Advisor Agent", tasks_output[1] if len(tasks_output) > 1 else "No output provided by this agent."),
             ("Verification Agent", tasks_output[2] if len(tasks_output) > 2 else "No output provided by this agent."),
             ("Estimated User Proficiency", tasks_output[3] if len(tasks_output) > 3 else "No output provided by this agent."),
-
         ]
-
-
 
         st.success("Your Medical Solution is Ready!")
         st.write("## **Agent Outputs and Thoughts**")
 
-
-
-
-
-
-
-
-
-
-
-
-        # Master Agent Output
         master_agent_output = tasks_output[5] if len(tasks_output) > 5 else "No output provided by this agent."
         st.header("Master Agent")
 
-
-
-        #GENERATING IMAGE AND WRAPPING IT AROUND THE MASTER AGENT TEXT
-        #Initial message for chatGPT to have some context
-        message = [{"role" : "assistant" , "content" : """
+        message = [{"role": "assistant", "content": """
             You need to take in the list of advice and return short search query to find an image based on the response.
-            I want nothing else in your output other then the sentence.
+            I want nothing else in your output other than the sentence.
         """}]
 
         pprint(vars(st.session_state.result))
-        print("\n")
-
-        #Accessing the raw information and converting it into a string
-        information=tasks_output[5] # type: ignore
-        information= str(information)
-
-
-        #Adding that information to the message for GPT
+        information = str(tasks_output[5])
         message.append({"role": "user", "content": information})
-        chat_response = openai.chat.completions.create(model="gpt-4o-mini",messages=message) # type: ignore
-
-
-        #Getting the first reply
+        chat_response = openai.chat.completions.create(model="gpt-4o-mini", messages=message)
         reply = chat_response.choices[0].message.content
         print(reply)
 
-
-        #Using the run method to generate the image links
-        imageURL= getImage(str(reply))
-        print(imageURL)
+        imageURL = getImage(str(reply))
         if imageURL:
-            imageURL= imageURL[0] 
+            imageURL = imageURL[0]
         else:
             st.error("No image is available for this query")
 
@@ -167,25 +85,17 @@ class MedicalMASUI:
                             style="float: left; width: 300px; height: auto; margin-right: 20px; margin-bottom: 10px; border-radius: 10px;">
                         <p style="text-align: justify;">{str(master_agent_output).replace('.', '.<br>')}</p>
                     </div>
-                    """,
-                    unsafe_allow_html=True,
+                """,
+                unsafe_allow_html=True,
             )
         else:
             st.markdown(f"<p>{str(master_agent_output).replace('.', '.<br>')}</p>", unsafe_allow_html=True)
 
-
-
-        # Display other agents
         for role, agent_output in agent_roles:
             with st.expander(f"{role}"):
-                # Ensure the numbers and content stay on the same line
                 formatted_output = str(agent_output).replace(".\n", ". ")
                 st.markdown(f"<p>{formatted_output}</p>", unsafe_allow_html=True)
 
-
-
-        # Risk Assessment Message
-        #Note: Padding has been fixed so it no longer overlaps
         st.markdown(
             """
             <div style='background-color: #1b4332; color: #ffffff; padding: 15px; border-radius: 5px; margin-top: 20px; margin-bottom: 20px; text-align: center;'>
@@ -195,88 +105,77 @@ class MedicalMASUI:
             unsafe_allow_html=True,
         )
 
-
-    
-        #If the speak button is pressed
         if st.button("Speak"):
-            #Creating a text to speech audo file
-            speech= str(tasks_output[5])#Getting the master agent output as a string
-            tts = gTTS(speech)#Uploading the string so it can be read as an mp3 file
+            speech = str(tasks_output[5])
+            tts = gTTS(speech)
             tts.save("output.mp3")
-            #Playing the audio
             st.audio("output.mp3")
-                    
-                
-        
 
+    # ✅ NEW: Recognize speech input from the mic
+    def recognize_speech_from_mic(self):
+        recognizer = sr.Recognizer()
+        mic = sr.Microphone()
+        with mic as source:
+            st.info("Listening... Please speak your query.")
+            recognizer.adjust_for_ambient_noise(source)
+            audio = recognizer.listen(source)
+        try:
+            st.info("Transcribing...")
+            text = recognizer.recognize_google(audio)
+            st.success(f"✅ You said: {text}")
+            return text
+        except sr.UnknownValueError:
+            st.error("Could not understand the audio.")
+        except sr.RequestError:
+            st.error("Could not connect to the speech recognition service.")
+        return ""
 
     def run(self):
-        """
-        Main method to run the Streamlit UI.
-        """
-        #Setting the page title and icon as well as the sidebar title
         st.set_page_config(page_title="Medical MAS", page_icon="🩹")
         st.sidebar.title("Medical MAS Control Panel")
         st.sidebar.text("Use this panel to interact with the system.")
 
-        # Input query
+        if st.sidebar.button("Use Voice Input"):
+            voice_text = self.recognize_speech_from_mic()
+            if voice_text:
+                st.session_state.query = voice_text
+
         st.sidebar.text_input(
             "Enter a medical query:", value=st.session_state.query, key="query"
         )
 
-
-
-        # Reset the query_logged flag when no query is entered
         if st.session_state.query.strip() == "":
             st.session_state.query_logged = False
 
-        
-        # Generate button
         if st.sidebar.button("Generate Solution"):
             st.session_state.generating = True
             if not st.session_state.query_logged:
                 with open("memory.txt", "a") as fileHandler:
                     fileHandler.write("Query: " + str(st.session_state.query) + "\n")
-                st.session_state.query_logged = True  # Set the flag after logging
+                st.session_state.query_logged = True
 
-
-        # Main layout
         if st.session_state.query.strip() == "":
-            # Display MAS information in the main area
             st.title("Welcome to the Medical MAS System")
             st.markdown(
                 """
                 **What is a Multi-Agent System (MAS)?**
-                
+
                 A Multi-Agent System (MAS) is a system where multiple agents (software entities) collaborate, communicate, and solve tasks together. Each agent has its own role and knowledge base, contributing to a shared goal. In this medical MAS, different agents analyze symptoms, provide medical advice, and verify data, helping to create a comprehensive solution for your medical query.
                 """
             )
-            
-    
 
         elif st.session_state.generating:
             result = self.generate_medical_aid(st.session_state.query)
-            #Setting the st.session_state in streamlit equal to the raw output from crewAI
             st.session_state.result = result
             st.session_state.generating = False
-            
-            
-        
-        #Writing the query to a file
+
         self.display_results(st.session_state.result)
 
 
-
-
-#Clearing memory when the application is closed
 def cleaMemory():
     open('memory.txt', 'w').close()
 atexit.register(cleaMemory)
 
-
-
-
-#Running the program>
 if __name__ == "__main__":
     ui = MedicalMASUI()
     ui.run()
